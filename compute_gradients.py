@@ -17,6 +17,7 @@ def compute_actor_gradients(actor_agent, exp, batch_adv, entropy_weight):
 
         # use a piece of experience
         node_inputs = np.vstack(exp['node_inputs'][ba_start : ba_end])
+        edge_inputs = np.vstack(exp['edge_inputs'][ba_start : ba_end])
         job_inputs = np.vstack(exp['job_inputs'][ba_start : ba_end])
         node_act_vec = np.vstack(exp['node_act_vec'][ba_start : ba_end])
         job_act_vec = np.vstack(exp['job_act_vec'][ba_start : ba_end])
@@ -47,7 +48,7 @@ def compute_actor_gradients(actor_agent, exp, batch_adv, entropy_weight):
 
         # compute gradient
         act_gradients, loss = actor_agent.get_gradients(
-            node_inputs, job_inputs,
+            node_inputs, job_inputs, edge_inputs,
             node_valid_mask, job_valid_mask,
             extended_gcn_mats, extended_gcn_masks,
             extended_summ_mats, extended_running_dag_mats,

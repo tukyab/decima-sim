@@ -28,7 +28,7 @@ def invoke_model(actor_agent, obs, exp):
     # invoking the learning model
     node_act, job_act, \
         node_act_probs, job_act_probs, \
-        node_inputs, job_inputs, \
+        node_inputs, job_inputs, edge_inputs, \
         node_valid_mask, job_valid_mask, \
         gcn_mats, gcn_masks, summ_mats, \
         running_dags_mat, dag_summ_backward_map, \
@@ -80,6 +80,7 @@ def invoke_model(actor_agent, obs, exp):
     # store experience
     exp['node_inputs'].append(node_inputs)
     exp['job_inputs'].append(job_inputs)
+    exp['edge_inputs'].append(edge_inputs)
     exp['summ_mats'].append(summ_mats)
     exp['running_dag_mat'].append(running_dags_mat)
     exp['node_act_vec'].append(node_act_vec)
@@ -113,7 +114,7 @@ def train_agent(agent_id, param_queue, reward_queue, adv_queue, gradient_queue):
 
     # set up actor agent
     actor_agent = ActorAgent(
-        sess, args.node_input_dim, args.job_input_dim,
+        sess, args.node_input_dim, args.job_input_dim, args.edge_input_dim,
         args.hid_dims, args.output_dim, args.max_depth,
         range(1, args.exec_cap + 1))
 
@@ -122,7 +123,7 @@ def train_agent(agent_id, param_queue, reward_queue, adv_queue, gradient_queue):
         # get parameters from master
         (actor_params, seed, max_time, entropy_weight) = \
             param_queue.get()
-        
+
         # synchronize model
         actor_agent.set_params(actor_params)
 
@@ -131,7 +132,7 @@ def train_agent(agent_id, param_queue, reward_queue, adv_queue, gradient_queue):
         env.reset(max_time=max_time)
 
         # set up storage for experience
-        exp = {'node_inputs': [], 'job_inputs': [], \
+        exp = {'node_inputs': [], 'job_inputs': [], 'edge_inputs': [], \
                'gcn_mats': [], 'gcn_masks': [], \
                'summ_mats': [], 'running_dag_mat': [], \
                'dag_summ_back_mat': [], \
@@ -159,7 +160,7 @@ def train_agent(agent_id, param_queue, reward_queue, adv_queue, gradient_queue):
             exp['wall_time'].append(env.wall_time.curr_time)
 
             while not done:
-                
+
                 node, use_exec = invoke_model(actor_agent, obs, exp)
 
                 obs, reward, done = env.step(node, use_exec)
@@ -206,7 +207,7 @@ def train_agent(agent_id, param_queue, reward_queue, adv_queue, gradient_queue):
             # ask the main to abort this rollout and
             # try again
             reward_queue.put(None)
-            # need to still get from adv_queue to 
+            # need to still get from adv_queue to
             # prevent blocking
             adv_queue.get()
 
@@ -246,7 +247,7 @@ def main():
 
     # set up actor agent
     actor_agent = ActorAgent(
-        sess, args.node_input_dim, args.job_input_dim,
+        sess, args.node_input_dim, args.job_input_dim, args.edge_input_dim,
         args.hid_dims, args.output_dim, args.max_depth,
         range(1, args.exec_cap + 1))
 

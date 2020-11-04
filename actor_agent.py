@@ -14,7 +14,7 @@ from spark_env.node import Node
 
 
 class ActorAgent(Agent):
-    def __init__(self, sess, node_input_dim, job_input_dim, hid_dims, output_dim,
+    def __init__(self, sess, node_input_dim, job_input_dim, edge_input_dim, hid_dims, output_dim,
                  max_depth, executor_levels, eps=1e-6, act_fn=leaky_relu,
                  optimizer=tf.train.AdamOptimizer, scope='actor_agent'):
 
@@ -23,6 +23,7 @@ class ActorAgent(Agent):
         self.sess = sess
         self.node_input_dim = node_input_dim
         self.job_input_dim = job_input_dim
+        self.edge_input_dim = edge_input_dim
         self.hid_dims = hid_dims
         self.output_dim = output_dim
         self.max_depth = max_depth
@@ -41,8 +42,11 @@ class ActorAgent(Agent):
         # job input dimension: [total_num_jobs, num_features]
         self.job_inputs = tf.placeholder(tf.float32, [None, self.job_input_dim])
 
+        self.edge_inputs = tf.placeholder(tf.float32, [None, None, self.edge_input_dim])
+
         self.gcn = GraphCNN(
-            self.node_inputs, self.node_input_dim, self.hid_dims,
+            self.node_inputs, self.node_input_dim, self.edge_inputs,
+            self.edge_input_dim, self.hid_dims,
             self.output_dim, self.max_depth, self.act_fn, self.scope)
 
         self.gsn = GraphSNN(
@@ -63,7 +67,7 @@ class ActorAgent(Agent):
         # node_act_probs: [batch_size, total_num_nodes]
         # job_act_probs: [batch_size, total_num_dags]
         self.node_act_probs, self.job_act_probs = self.actor_network(
-            self.node_inputs, self.gcn.outputs, self.job_inputs,
+            self.node_inputs, self.edge_inputs, self.gcn.outputs, self.job_inputs,
             self.gsn.summaries[0], self.gsn.summaries[1],
             self.node_valid_mask, self.job_valid_mask,
             self.dag_summ_backward_map, self.act_fn)
@@ -162,7 +166,7 @@ class ActorAgent(Agent):
         if args.saved_model is not None:
             self.saver.restore(self.sess, args.saved_model)
 
-    def actor_network(self, node_inputs, gcn_outputs, job_inputs,
+    def actor_network(self, node_inputs, edge_inputs, gcn_outputs, job_inputs,
                       gsn_dag_summary, gsn_global_summary,
                       node_valid_mask, job_valid_mask,
                       gsn_summ_backward_map, act_fn):
@@ -174,6 +178,9 @@ class ActorAgent(Agent):
         # (1) reshape node inputs to batch format
         node_inputs_reshape = tf.reshape(
             node_inputs, [batch_size, -1, self.node_input_dim])
+
+        edge_inputs_reshape = tf.reshape(
+            edge_inputs, [batch_size, -1, self.edge_input_dim])
 
         # (2) reshape job inputs to batch format
         job_inputs_reshape = tf.reshape(
@@ -275,11 +282,11 @@ class ActorAgent(Agent):
             set_params_op.append(self.params[idx].assign(param))
         return input_params, set_params_op
 
-    def gcn_forward(self, node_inputs, summ_mats):
+    def gcn_forward(self, node_inputs, edge_inputs, umm_mats):
         return self.sess.run([self.gsn.summaries],
             feed_dict={i: d for i, d in zip(
-                [self.node_inputs] + self.gsn.summ_mats,
-                [node_inputs] + summ_mats)
+                [self.node_inputs] + [self.edge_inputs] + self.gsn.summ_mats,
+                [node_inputs] + [edge_inputs] + summ_mats)
         })
 
     def get_params(self):
@@ -288,7 +295,7 @@ class ActorAgent(Agent):
     def save_model(self, file_path):
         self.saver.save(self.sess, file_path)
 
-    def get_gradients(self, node_inputs, job_inputs,
+    def get_gradients(self, node_inputs, job_inputs, edge_inputs,
             node_valid_mask, job_valid_mask,
             gcn_mats, gcn_masks, summ_mats,
             running_dags_mat, dag_summ_backward_map,
@@ -297,12 +304,12 @@ class ActorAgent(Agent):
         return self.sess.run([self.act_gradients,
             [self.adv_loss, self.entropy_loss]],
             feed_dict={i: d for i, d in zip(
-                [self.node_inputs] + [self.job_inputs] + \
+                [self.node_inputs] + [self.job_inputs] + [self.edge_inputs] + \
                 [self.node_valid_mask] + [self.job_valid_mask] + \
                 self.gcn.adj_mats + self.gcn.masks + self.gsn.summ_mats + \
                 [self.dag_summ_backward_map] + [self.node_act_vec] + \
                 [self.job_act_vec] + [self.adv] + [self.entropy_weight], \
-                [node_inputs] + [job_inputs] + \
+                [node_inputs] + [job_inputs] + [edge_inputs] + \
                 [node_valid_mask] + [job_valid_mask] + \
                 gcn_mats + gcn_masks + \
                 [summ_mats, running_dags_mat] + \
@@ -310,18 +317,18 @@ class ActorAgent(Agent):
                 [job_act_vec] + [adv] + [entropy_weight])
         })
 
-    def predict(self, node_inputs, job_inputs,
+    def predict(self, node_inputs, job_inputs, edge_inputs,
             node_valid_mask, job_valid_mask,
             gcn_mats, gcn_masks, summ_mats,
             running_dags_mat, dag_summ_backward_map):
         return self.sess.run([self.node_act_probs, self.job_act_probs,
             self.node_acts, self.job_acts], \
             feed_dict={i: d for i, d in zip(
-                [self.node_inputs] + [self.job_inputs] + \
+                [self.node_inputs] + [self.job_inputs] + [self.edge_inputs] + \
                 [self.node_valid_mask] + [self.job_valid_mask] + \
                 self.gcn.adj_mats + self.gcn.masks + self.gsn.summ_mats + \
                 [self.dag_summ_backward_map], \
-                [node_inputs] + [job_inputs] + \
+                [node_inputs] + [job_inputs] + [edge_inputs] + \
                 [node_valid_mask] + [job_valid_mask] +  \
                 gcn_mats + gcn_masks + \
                 [summ_mats, running_dags_mat] + \
@@ -347,6 +354,7 @@ class ActorAgent(Agent):
         # job and node inputs to feed
         node_inputs = np.zeros([total_num_nodes, self.node_input_dim])
         job_inputs = np.zeros([len(job_dags), self.job_input_dim])
+        edge_inputs = np.zeros([total_num_nodes, total_num_nodes, self.edge_input_dim])
 
         # sort out the exec_map
         exec_map = {}
@@ -389,6 +397,7 @@ class ActorAgent(Agent):
         node_idx = 0
         job_idx = 0
         for job_dag in job_dags:
+            first_node_offset = node_idx
             for node in job_dag.nodes:
 
                 # copy the feature from job_input first
@@ -403,11 +412,17 @@ class ActorAgent(Agent):
                 node_inputs[node_idx, 4] = \
                     (node.num_tasks - node.next_task_idx) / 200.0
 
+                for child in node.child_nodes:
+                    if node.is_child_pipeline_breaking(child.idx):
+                        edge_inputs[node_idx, first_node_offset + child.idx] = [1, 0]
+                    else:
+                        edge_inputs[node_idx, first_node_offset + child.idx] = [0, 1]
+
                 node_idx += 1
 
             job_idx += 1
 
-        return node_inputs, job_inputs, \
+        return node_inputs, job_inputs, edge_inputs, \
                job_dags, source_job, num_source_exec, \
                frontier_nodes, executor_limits, \
                exec_commit, moving_executors, \
@@ -465,7 +480,7 @@ class ActorAgent(Agent):
     def invoke_model(self, obs):
         # implement this module here for training
         # (to pick up state and action to record)
-        node_inputs, job_inputs, \
+        node_inputs, job_inputs, edge_inputs, \
             job_dags, source_job, num_source_exec, \
             frontier_nodes, executor_limits, \
             exec_commit, moving_executors, \
@@ -486,14 +501,14 @@ class ActorAgent(Agent):
 
         # invoke learning model
         node_act_probs, job_act_probs, node_acts, job_acts = \
-            self.predict(node_inputs, job_inputs,
+            self.predict(node_inputs, job_inputs, edge_inputs,
                 node_valid_mask, job_valid_mask, \
                 gcn_mats, gcn_masks, summ_mats, \
                 running_dags_mat, dag_summ_backward_map)
 
         return node_acts, job_acts, \
                node_act_probs, job_act_probs, \
-               node_inputs, job_inputs, \
+               node_inputs, job_inputs, edge_inputs, \
                node_valid_mask, job_valid_mask, \
                gcn_mats, gcn_masks, summ_mats, \
                running_dags_mat, dag_summ_backward_map, \
@@ -513,7 +528,7 @@ class ActorAgent(Agent):
         # invoking the learning model
         node_act, job_act, \
             node_act_probs, job_act_probs, \
-            node_inputs, job_inputs, \
+            node_inputs, job_inputs, edge_inputs, \
             node_valid_mask, job_valid_mask, \
             gcn_mats, gcn_masks, summ_mats, \
             running_dags_mat, dag_summ_backward_map, \

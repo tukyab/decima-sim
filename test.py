@@ -29,7 +29,7 @@ for scheme in args.test_schemes:
     if scheme == 'learn':
         sess = tf.Session()
         agents[scheme] = ActorAgent(
-            sess, args.node_input_dim, args.job_input_dim,
+            sess, args.node_input_dim, args.job_input_dim, args.edge_input_dim,
             args.hid_dims, args.output_dim, args.max_depth,
             range(1, args.exec_cap + 1))
     elif scheme == 'dynamic_partition':

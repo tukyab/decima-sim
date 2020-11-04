@@ -24,6 +24,7 @@ class Node(object):
         # uninitialized
         self.parent_nodes = []
         self.child_nodes = []
+        self.child_nodes_pipeline_breaking = {}
         self.descendant_nodes = []
         self.job_dag = None
 
@@ -47,9 +48,16 @@ class Node(object):
         if self.tasks_all_done:  # node done
             return False
         for node in self.parent_nodes:
-            if not node.tasks_all_done:  # a parent node not done
+            if not node.is_child_pipeline_breaking(self.idx) and \
+                not node.tasks_all_done:  # a parent node not done
+                return False
+            if node.is_child_pipeline_breaking(self.idx) and \
+                node.num_finished_tasks == 0: # even if non pipeline breaking, parent needs to have started
                 return False
         return True
+
+    def is_child_pipeline_breaking(self, child_idx):
+        return self.child_nodes_pipeline_breaking[child_idx]
 
     def reset(self):
         for task in self.tasks:

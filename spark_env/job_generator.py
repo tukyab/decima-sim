@@ -8,12 +8,14 @@ from spark_env.job_dag import *
 
 def load_job(file_path, query_size, query_idx, wall_time, np_random):
     query_path = file_path + query_size + '/'
-    
+
     adj_mat = np.load(
         query_path + 'adj_mat_' + str(query_idx) + '.npy', allow_pickle=True)
+    edges = np.load(
+        query_path + 'edges_' + str(query_idx) + '.npy', allow_pickle=True)
     task_durations = np.load(
         query_path + 'task_duration_' + str(query_idx) + '.npy', allow_pickle=True).item()
-    
+
     assert adj_mat.shape[0] == adj_mat.shape[1]
     assert adj_mat.shape[0] == len(task_durations)
 
@@ -50,6 +52,7 @@ def load_job(file_path, query_size, query_idx, wall_time, np_random):
             if adj_mat[i, j] == 1:
                 nodes[i].child_nodes.append(nodes[j])
                 nodes[j].parent_nodes.append(nodes[i])
+                nodes[i].child_nodes_pipeline_breaking[j] = edges[i, j]
 
     # initialize descendant nodes
     for node in nodes:
@@ -111,6 +114,7 @@ def generate_tpch_jobs(np_random, timeline, wall_time):
 
     job_dags = OrderedSet()
     t = 0
+    test_queries = []
 
     for _ in range(args.num_init_dags):
         # generate query
@@ -123,6 +127,7 @@ def generate_tpch_jobs(np_random, timeline, wall_time):
         job_dag.start_time = t
         job_dag.arrived = True
         job_dags.add(job_dag)
+        test_queries.append((t, query_size, query_idx))
 
     for _ in range(args.num_stream_dags):
         # poisson process
@@ -136,6 +141,10 @@ def generate_tpch_jobs(np_random, timeline, wall_time):
         # push into timeline
         job_dag.start_time = t
         timeline.push(t, job_dag)
+        test_queries.append((t, query_size, query_idx))
+
+    if args.save_test:
+        np.save("/flash2/tenzin/test.npy", np.array(test_queries))
 
     return job_dags
 

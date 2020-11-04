@@ -19,6 +19,8 @@ parser.add_argument('--result_folder', type=str, default='./results/',
                     help='Result folder path (default: ./results)')
 parser.add_argument('--model_folder', type=str, default='./models/',
                     help='Model folder path (default: ./models)')
+parser.add_argument('--save_test', type=bool, default=False,
+                    help='Save the test query timeline.')
 
 # -- Environment --
 parser.add_argument('--exec_cap', type=int, default=100,
@@ -87,6 +89,8 @@ parser.add_argument('--node_input_dim', type=int, default=5,
                     help='node input dimensions to graph embedding (default: 5)')
 parser.add_argument('--job_input_dim', type=int, default=3,
                     help='job input dimensions to graph embedding (default: 3)')
+parser.add_argument('--edge_input_dim', type=int, default=2,
+                    help='edge input dimensions to graph embedding (default: 2)')
 parser.add_argument('--hid_dims', type=int, default=[16, 8], nargs='+',
                     help='hidden dimensions throughout graph embedding (default: [16, 8])')
 parser.add_argument('--output_dim', type=int, default=8,

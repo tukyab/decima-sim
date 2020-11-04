@@ -11,12 +11,14 @@ import tensorflow as tf
 from tf_op import glorot, ones, zeros
 
 class GraphCNN(object):
-    def __init__(self, inputs, input_dim, hid_dims, output_dim,
-                 max_depth, act_fn, scope='gcn'):
+    def __init__(self, node_inputs, node_input_dim, edge_inputs, edge_input_dim,
+                 hid_dims, output_dim, max_depth, act_fn, scope='gcn'):
 
-        self.inputs = inputs
+        self.node_inputs = node_inputs
+        self.edge_inputs = edge_inputs
 
-        self.input_dim = input_dim
+        self.node_input_dim = node_input_dim
+        self.edge_input_dim = edge_input_dim
         self.hid_dims = hid_dims
         self.output_dim = output_dim
 
@@ -34,10 +36,16 @@ class GraphCNN(object):
         # initialize message passing transformation parameters
         # h: x -> x'
         self.prep_weights, self.prep_bias = \
-            self.init(self.input_dim, self.hid_dims, self.output_dim)
+            self.init(self.node_input_dim, self.hid_dims, self.output_dim)
+
+        self.edge_prep_weights, self.edge_prep_bias = \
+            self.init(self.edge_input_dim, self.hid_dims, self.output_dim)
 
         # f: x' -> e
         self.proc_weights, self.proc_bias = \
+            self.init(self.output_dim, self.hid_dims, self.output_dim)
+
+        self.edge_proc_weights, self.edge_proc_bias = \
             self.init(self.output_dim, self.hid_dims, self.output_dim)
 
         # g: e -> e
@@ -74,7 +82,8 @@ class GraphCNN(object):
     def forward(self):
         # message passing among nodes
         # the information is flowing from leaves to roots
-        x = self.inputs
+        x = self.node_inputs
+        h = self.edge_inputs
 
         # raise x into higher dimension
         for l in range(len(self.prep_weights)):
@@ -82,9 +91,27 @@ class GraphCNN(object):
             x += self.prep_bias[l]
             x = self.act_fn(x)
 
+        for l in range(len(self.edge_prep_weights)):
+            init = tf.placeholder(tf.float32, [None, self.edge_prep_weights[l].shape.as_list()[-1]])
+            # init = tf.reshape(h, [h.shape.as_list()[0], h.shape.as_list()[1], self.edge_prep_weights[l].shape.as_list()[-1]])
+            h = tf.scan(lambda a, x: tf.matmul(x, self.edge_prep_weights[l]), h, init, infer_shape=False)
+            h = tf.scan(lambda a, x: x + self.edge_prep_bias[l], h)
+            h = tf.scan(lambda a, x: self.act_fn(x), h)
+
+            # h = tf.matmul(h, self.edge_prep_weights[l])
+            # h += self.edge_prep_bias[l]
+            # h = self.act_fn(h)
+
+            # if h.shape[0] != None:
+            # for i in range(h.shape[0]):
+            #     h[i] = tf.matmul(h[i], self.edge_prep_weights[l])
+            #     h[i] += self.edge_prep_bias[l]
+            #     h[i] = self.act_fn(h[i])
+
         for d in range(self.max_depth):
             # work flow: index_select -> f -> masked assemble via adj_mat -> g
             y = x
+            e = h
 
             # process the features on the nodes
             for l in range(len(self.proc_weights)):
@@ -94,6 +121,35 @@ class GraphCNN(object):
 
             # message passing
             y = tf.sparse_tensor_dense_matmul(self.adj_mats[d], y)
+
+            # edge features
+            for l in range(len(self.edge_proc_weights)):
+                init = tf.placeholder(tf.float32, [None, self.edge_proc_weights[l].shape.as_list()[-1]])
+                # init = tf.reshape(h, [h.shape.as_list()[0], h.shape.as_list()[1], self.edge_proc_weights[l].shape.as_list()[-1]])
+                h = tf.scan(lambda a, x: tf.matmul(x, self.edge_proc_weights[l]), h, init, infer_shape=False)
+                h = tf.scan(lambda a, x: x + self.edge_proc_bias[l], h)
+                h = tf.scan(lambda a, x: self.act_fn(x), h)
+
+                # h = tf.matmul(h, self.edge_proc_weights[l])
+                # h += self.edge_proc_bias[l]
+                # h = self.act_fn(h)
+
+                # if e.shape[0] != None:
+                # for i in range(e.shape[0]):
+                #     e[i] = tf.matmul(e[i], self.edge_proc_weights[l])
+                #     e[i] += self.edge_proc_bias[l]
+                #     e[i] = self.act_fn(e[i])
+
+            # if y.shape[0] != None:
+            #     for i in range(y.shape[0]):
+            #         if e.shape[0] != None and e.shape[1] != None:
+            #             a = e[i, 0]
+            #             for j in range(1, e.shape[1]):
+            #                     a += e[i, j]
+            #             y[i] += a
+
+            h = tf.reduce_sum(h, 1)
+            y = tf.math.add(y, h)
 
             # aggregate child features
             for l in range(len(self.agg_weights)):
