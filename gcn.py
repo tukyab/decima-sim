@@ -92,7 +92,7 @@ class GraphCNN(object):
             x = self.act_fn(x)
 
         for l in range(len(self.edge_prep_weights)):
-            init = tf.placeholder(tf.float32, [None, self.edge_prep_weights[l].shape.as_list()[-1]])
+            init = tf.placeholder(tf.float32, [h.shape.as_list()[-2], self.edge_prep_weights[l].shape.as_list()[-1]])
             # init = tf.reshape(h, [h.shape.as_list()[0], h.shape.as_list()[1], self.edge_prep_weights[l].shape.as_list()[-1]])
             h = tf.scan(lambda a, x: tf.matmul(x, self.edge_prep_weights[l]), h, init, infer_shape=False)
             h = tf.scan(lambda a, x: x + self.edge_prep_bias[l], h)
@@ -124,7 +124,7 @@ class GraphCNN(object):
 
             # edge features
             for l in range(len(self.edge_proc_weights)):
-                init = tf.placeholder(tf.float32, [None, self.edge_proc_weights[l].shape.as_list()[-1]])
+                init = tf.placeholder(tf.float32, [h.shape.as_list()[-2], self.edge_proc_weights[l].shape.as_list()[-1]])
                 # init = tf.reshape(h, [h.shape.as_list()[0], h.shape.as_list()[1], self.edge_proc_weights[l].shape.as_list()[-1]])
                 h = tf.scan(lambda a, x: tf.matmul(x, self.edge_proc_weights[l]), h, init, infer_shape=False)
                 h = tf.scan(lambda a, x: x + self.edge_proc_bias[l], h)
