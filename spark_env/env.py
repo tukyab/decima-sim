@@ -343,7 +343,7 @@ class Environment(object):
         if done:
             assert self.wall_time.curr_time >= self.max_time or \
                    len(self.job_dags) == 0
-            if self.save_test:
+            if args.save_test:
                 print(self.wall_time.curr_time)
 
         return self.observe(), reward, done
