@@ -182,8 +182,8 @@ class GraphCNN(object):
             #                     a += e[i, j]
             #             y[i] += a
 
-            h = tf.reduce_sum(e, 1)
-            y = tf.math.add(y, e)
+            p = tf.reduce_sum(e, 1)
+            y = tf.math.add(y, p)
 
             # aggregate child features
             for l in range(len(self.agg_weights)):
