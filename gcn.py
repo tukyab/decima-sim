@@ -79,6 +79,18 @@ class GraphCNN(object):
 
         return weights, bias
 
+    def edge_prep(self, a, x):
+        res = x
+        for l in range(len(self.edge_prep_weights)):
+            res = self.act_fn(tf.matmul(res, self.edge_prep_weights[l]) + self.edge_prep_bias[l])
+        return res
+
+    def edge_proc(self, a, x):
+        res = x
+        for l in range(len(self.edge_proc_weights)):
+            res = self.act_fn(tf.matmul(res, self.edge_proc_weights[l]) + self.edge_proc_bias[l])
+        return res
+
     def forward(self):
         # message passing among nodes
         # the information is flowing from leaves to roots
@@ -91,7 +103,10 @@ class GraphCNN(object):
             x += self.prep_bias[l]
             x = self.act_fn(x)
 
-        for l in range(len(self.edge_prep_weights)):
+        init = tf.placeholder(tf.float32, [None, self.output_dim])
+        h = tf.scan(self.edge_prep, h, init, infer_shape=False)
+
+        # for l in range(len(self.edge_prep_weights)):
             # x_unpacked = tf.unstack(h) # defaults to axis 0, returns a list of tensors
             # processed = [] # this will be the list of processed tensors
             # for x in x_unpacked:
@@ -100,11 +115,11 @@ class GraphCNN(object):
             # h = tf.concat(processed, 0)
 
             # h = tf.map_fn(lambda x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h, back_prop=True, infer_shape=False)
-            if l == 0:
-                init = tf.placeholder(tf.float32, [None, self.edge_prep_weights[l].shape.as_list()[-1]])
-                h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h, init, infer_shape=False)
-            else:
-                h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h)
+            # if l == 0:
+            #     init = tf.placeholder(tf.float32, [None, self.edge_prep_weights[l].shape.as_list()[-1]])
+            #     h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h, init, infer_shape=False)
+            # else:
+            #     h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h)
 
             # h = tf.matmul(h, self.edge_prep_weights[l])
             # h += self.edge_prep_bias[l]
@@ -131,7 +146,8 @@ class GraphCNN(object):
             y = tf.sparse_tensor_dense_matmul(self.adj_mats[d], y)
 
             # edge features
-            for l in range(len(self.edge_proc_weights)):
+            e = tf.scan(self.edge_proc, e, infer_shape=False)
+            # for l in range(len(self.edge_proc_weights)):
                 # x_unpacked = tf.unstack(h) # defaults to axis 0, returns a list of tensors
                 # processed = [] # this will be the list of processed tensors
                 # for x in x_unpacked:
@@ -141,11 +157,11 @@ class GraphCNN(object):
 
                 # h = tf.map_fn(lambda x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), h, back_prop=True)
 
-                if l == 0:
-                    init = tf.placeholder(tf.float32, [None, self.edge_proc_weights[l].shape.as_list()[-1]])
-                    e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, init, infer_shape=False)
-                else:
-                    e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, infer_shape=False)
+                # if l == 0:
+                #     init = tf.placeholder(tf.float32, [None, self.edge_proc_weights[l].shape.as_list()[-1]])
+                #     e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, init, infer_shape=False)
+                # else:
+                #     e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, infer_shape=False)
 
 
                 # h = tf.matmul(h, self.edge_proc_weights[l])
