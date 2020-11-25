@@ -10,6 +10,7 @@ import numpy as np
 import scipy.sparse as sp
 import tensorflow as tf
 from tf_op import glorot, ones, zeros
+from param import *
 
 class GraphCNN(object):
     def __init__(self, node_inputs, node_input_dim, edge_inputs, edge_input_dim,
@@ -62,14 +63,16 @@ class GraphCNN(object):
 
         return weights
 
-    def pan_filter(self):
+    def pan_filter(self, n):
+        E = 1 #something
+        T = 1 #something
+        ret = np.exp(E/T)
         return 1
 
     def forward(self):
         # message passing among nodes
         # the information is flowing from leaves to roots
         x = self.node_inputs
-        h = self.edge_inputs
 
         x = tf.matmul(x, self.prep_weights)
 
@@ -81,12 +84,12 @@ class GraphCNN(object):
             for l in range(len(self.weights)):
                 y = tf.matmul(y, self.weights[l])
 
-                adj_tmp = tf.sparse.to_dense(self.adj_mats[d])
                 adj = tf.sparse.to_dense(self.adj_mats[d])
-                pan_adj = tf.sparse.to_dense(self.adj_mats[d])*self.pan_filter()
-                for i in range(10):
+                adj_tmp = adj
+                pan_adj = adj*self.pan_filter(0)
+                for i in range(1, args.L):
                     adj_tmp = tf.matmul(adj_tmp, adj)
-                    pan_adj = pan_adj + self.pan_filter() * adj_tmp
+                    pan_adj = pan_adj + self.pan_filter(i) * adj_tmp
 
                 rowsum = tf.math.reduce_sum(adj_tmp, 1)
                 d_inv_sqrt = tf.math.pow(rowsum, -0.5)
