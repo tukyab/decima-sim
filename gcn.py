@@ -7,6 +7,7 @@ via parameterized message passing scheme
 
 import copy
 import numpy as np
+import scipy.sparse as sp
 import tensorflow as tf
 from tf_op import glorot, ones, zeros
 
@@ -18,7 +19,6 @@ class GraphCNN(object):
         self.edge_inputs = edge_inputs
 
         self.node_input_dim = node_input_dim
-        self.edge_input_dim = edge_input_dim
         self.hid_dims = hid_dims
         self.output_dim = output_dim
 
@@ -33,24 +33,11 @@ class GraphCNN(object):
         self.masks = [tf.placeholder(
             tf.float32, [None, 1]) for _ in range(self.max_depth)]
 
-        # initialize message passing transformation parameters
-        # h: x -> x'
-        self.prep_weights, self.prep_bias = \
-            self.init(self.node_input_dim, self.hid_dims, self.output_dim)
-
-        self.edge_prep_weights, self.edge_prep_bias = \
-            self.init(self.edge_input_dim, self.hid_dims, self.output_dim)
-
-        # f: x' -> e
-        self.proc_weights, self.proc_bias = \
+        # W
+        self.weights = \
             self.init(self.output_dim, self.hid_dims, self.output_dim)
 
-        self.edge_proc_weights, self.edge_proc_bias = \
-            self.init(self.output_dim, self.hid_dims, self.output_dim)
-
-        # g: e -> e
-        self.agg_weights, self.agg_bias = \
-            self.init(self.output_dim, self.hid_dims, self.output_dim)
+        self.prep_weights = glorot([self.node_input_dim, self.output_dim], scope=self.scope)
 
         # graph message passing
         self.outputs = self.forward()
@@ -61,7 +48,6 @@ class GraphCNN(object):
         # e.g., we may want to propagate information multiple times
         # but using the same way of processing the nodes
         weights = []
-        bias = []
 
         curr_in_dim = input_dim
 
@@ -69,27 +55,15 @@ class GraphCNN(object):
         for hid_dim in hid_dims:
             weights.append(
                 glorot([curr_in_dim, hid_dim], scope=self.scope))
-            bias.append(
-                zeros([hid_dim], scope=self.scope))
             curr_in_dim = hid_dim
 
         # output layer
         weights.append(glorot([curr_in_dim, output_dim], scope=self.scope))
-        bias.append(zeros([output_dim], scope=self.scope))
 
-        return weights, bias
+        return weights
 
-    def edge_prep(self, a, x):
-        res = x
-        for l in range(len(self.edge_prep_weights)):
-            res = self.act_fn(tf.matmul(res, self.edge_prep_weights[l]) + self.edge_prep_bias[l])
-        return res
-
-    def edge_proc(self, a, x):
-        res = x
-        for l in range(len(self.edge_proc_weights)):
-            res = self.act_fn(tf.matmul(res, self.edge_proc_weights[l]) + self.edge_proc_bias[l])
-        return res
+    def pan_filter(self):
+        return 1
 
     def forward(self):
         # message passing among nodes
@@ -97,104 +71,37 @@ class GraphCNN(object):
         x = self.node_inputs
         h = self.edge_inputs
 
-        # raise x into higher dimension
-        for l in range(len(self.prep_weights)):
-            x = tf.matmul(x, self.prep_weights[l])
-            x += self.prep_bias[l]
-            x = self.act_fn(x)
-
-        init = tf.placeholder(tf.float32, [None, self.output_dim])
-        h = tf.scan(self.edge_prep, h, init, infer_shape=False)
-
-        # for l in range(len(self.edge_prep_weights)):
-            # x_unpacked = tf.unstack(h) # defaults to axis 0, returns a list of tensors
-            # processed = [] # this will be the list of processed tensors
-            # for x in x_unpacked:
-            #     result_tensor = self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l])
-            #     processed.append(result_tensor)
-            # h = tf.concat(processed, 0)
-
-            # h = tf.map_fn(lambda x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h, back_prop=True, infer_shape=False)
-            # if l == 0:
-            #     init = tf.placeholder(tf.float32, [None, self.edge_prep_weights[l].shape.as_list()[-1]])
-            #     h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h, init, infer_shape=False)
-            # else:
-            #     h = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_prep_weights[l]) + self.edge_prep_bias[l]), h)
-
-            # h = tf.matmul(h, self.edge_prep_weights[l])
-            # h += self.edge_prep_bias[l]
-            # h = self.act_fn(h)
-
-            # if h.shape[0] != None:
-            # for i in range(h.shape[0]):
-            #     h[i] = tf.matmul(h[i], self.edge_prep_weights[l])
-            #     h[i] += self.edge_prep_bias[l]
-            #     h[i] = self.act_fn(h[i])
+        x = tf.matmul(x, self.prep_weights)
 
         for d in range(self.max_depth):
             # work flow: index_select -> f -> masked assemble via adj_mat -> g
             y = x
-            e = h
 
             # process the features on the nodes
-            for l in range(len(self.proc_weights)):
-                y = tf.matmul(y, self.proc_weights[l])
-                y += self.proc_bias[l]
-                y = self.act_fn(y)
+            for l in range(len(self.weights)):
+                y = tf.matmul(y, self.weights[l])
+
+                adj_tmp = tf.sparse.to_dense(self.adj_mats[d])
+                adj = tf.sparse.to_dense(self.adj_mats[d])
+                pan_adj = tf.sparse.to_dense(self.adj_mats[d])*self.pan_filter()
+                for i in range(10):
+                    adj_tmp = tf.matmul(adj_tmp, adj)
+                    pan_adj = pan_adj + self.pan_filter() * adj_tmp
+
+                rowsum = tf.math.reduce_sum(adj_tmp, 1)
+                d_inv_sqrt = tf.math.pow(rowsum, -0.5)
+                d_inv_sqrt = tf.reshape(d_inv_sqrt, [-1])
+                d_mat_inv_sqrt = tf.linalg.diag(d_inv_sqrt)
+                norm = tf.tensordot(adj_tmp, d_mat_inv_sqrt, 1)
+                norm = tf.transpose(norm)
+                norm = tf.tensordot(norm, d_mat_inv_sqrt, 1)
+
+                y = tf.multiply(norm, y)
 
             # message passing
             y = tf.sparse_tensor_dense_matmul(self.adj_mats[d], y)
 
-            # edge features
-            e = tf.scan(self.edge_proc, e, infer_shape=False)
-            # for l in range(len(self.edge_proc_weights)):
-                # x_unpacked = tf.unstack(h) # defaults to axis 0, returns a list of tensors
-                # processed = [] # this will be the list of processed tensors
-                # for x in x_unpacked:
-                #     result_tensor = self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l])
-                #     processed.append(result_tensor)
-                # h = tf.concat(processed, 0)
-
-                # h = tf.map_fn(lambda x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), h, back_prop=True)
-
-                # if l == 0:
-                #     init = tf.placeholder(tf.float32, [None, self.edge_proc_weights[l].shape.as_list()[-1]])
-                #     e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, init, infer_shape=False)
-                # else:
-                #     e = tf.scan(lambda a, x: self.act_fn(tf.matmul(x, self.edge_proc_weights[l]) + self.edge_proc_bias[l]), e, infer_shape=False)
-
-
-                # h = tf.matmul(h, self.edge_proc_weights[l])
-                # h += self.edge_proc_bias[l]
-                # h = self.act_fn(h)
-
-                # if e.shape[0] != None:
-                # for i in range(e.shape[0]):
-                #     e[i] = tf.matmul(e[i], self.edge_proc_weights[l])
-                #     e[i] += self.edge_proc_bias[l]
-                #     e[i] = self.act_fn(e[i])
-
-            # if y.shape[0] != None:
-            #     for i in range(y.shape[0]):
-            #         if e.shape[0] != None and e.shape[1] != None:
-            #             a = e[i, 0]
-            #             for j in range(1, e.shape[1]):
-            #                     a += e[i, j]
-            #             y[i] += a
-
-            p = tf.reduce_sum(e, 1)
-            y = tf.math.add(y, p)
-
-            # aggregate child features
-            for l in range(len(self.agg_weights)):
-                y = tf.matmul(y, self.agg_weights[l])
-                y += self.agg_bias[l]
-                y = self.act_fn(y)
-
-            # remove the artifact from the bias term in g
-            y = y * self.masks[d]
-
             # assemble neighboring information
-            x = x + y
+            x = y
 
         return x
